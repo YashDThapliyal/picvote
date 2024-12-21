@@ -5,14 +5,25 @@ import uuid
 from PIL import Image
 from pillow_heif import register_heif_opener
 import hashlib
+import base64
 
 # Register HEIF opener to support HEIC files
 register_heif_opener()
 
-# Initialize connection to SQLite
-conn = st.connection('sqlite', type='sql', url='sqlite:///picture_voting.db')
+# Set page configuration
+st.set_page_config(page_title="Picture Voting App", layout="wide")
 
-# Create tables if they don't exist
+# Custom CSS
+def local_css(file_name):
+    with open(file_name, "r") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+local_css("style.css")
+
+# Initialize connection to SQLite
+conn = st.connection('sqlite', type='sql')
+
+# Database setup (create tables if they don't exist)
 conn.execute('''
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,35 +106,37 @@ def user_has_voted(user_id, session_id):
 
 # Main app
 def main():
-    st.title("Picture Voting Website")
+    st.title("Picture Voting App")
 
     # User authentication
     if 'user_id' not in st.session_state:
         st.session_state.user_id = None
 
     if st.session_state.user_id is None:
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Sign In"):
-                user_id = authenticate_user(username, password)
-                if user_id:
-                    st.session_state.user_id = user_id
-                    st.success("Signed in successfully!")
-                    st.rerun()
-                else:
-                    st.error("Invalid username or password")
-        with col2:
-            if st.button("Sign Up"):
-                if username and password:
-                    try:
-                        add_user(username, password)
-                        st.success("User created successfully! Please sign in.")
-                    except sqlite3.IntegrityError:
-                        st.error("Username already exists")
-                else:
-                    st.error("Please enter both username and password")
+        with st.container():
+            st.subheader("Sign In or Sign Up")
+            col1, col2 = st.columns(2)
+            with col1:
+                username = st.text_input("Username")
+                password = st.text_input("Password", type="password")
+            with col2:
+                if st.button("Sign In", key="signin"):
+                    user_id = authenticate_user(username, password)
+                    if user_id:
+                        st.session_state.user_id = user_id
+                        st.success("Signed in successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid username or password")
+                if st.button("Sign Up", key="signup"):
+                    if username and password:
+                        try:
+                            add_user(username, password)
+                            st.success("User created successfully! Please sign in.")
+                        except sqlite3.IntegrityError:
+                            st.error("Username already exists")
+                    else:
+                        st.error("Please enter both username and password")
 
     else:
         user = conn.query('SELECT username FROM users WHERE id = ?', params=(st.session_state.user_id,)).iloc[0]
@@ -141,7 +154,7 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 session_name = st.text_input("Enter a name for your session")
-                if st.button("Create New Session"):
+                if st.button("Create New Session", key="create_session"):
                     if session_name:
                         session_id = create_session(session_name, st.session_state.user_id)
                         st.session_state.current_session = session_id
@@ -154,17 +167,15 @@ def main():
                 st.subheader("Active Sessions")
                 active_sessions = get_active_sessions()
                 for _, session in active_sessions.iterrows():
-                    st.write(f"Name: {session['name']}")
-                    st.write(f"Host: {session['host']}")
-                    if st.button(f"Join {session['name']}", key=f"join_{session['id']}"):
-                        st.session_state.current_session = session['id']
-                        st.success(f"Joined session: {session['name']}")
-                        st.rerun()
-                    st.write("---")
+                    with st.expander(f"{session['name']} (Host: {session['host']})"):
+                        if st.button(f"Join Session", key=f"join_{session['id']}"):
+                            st.session_state.current_session = session['id']
+                            st.success(f"Joined session: {session['name']}")
+                            st.rerun()
 
         else:
             session = conn.query('SELECT * FROM sessions WHERE id = ?', params=(st.session_state.current_session,)).iloc[0]
-            st.subheader(f"Current Session: {session['name']} (ID: {st.session_state.current_session})")
+            st.subheader(f"Current Session: {session['name']}")
             host = conn.query('SELECT username FROM users WHERE id = ?', params=(session['host_id'],)).iloc[0]
             st.write(f"Host: {host['username']}")
 
@@ -172,7 +183,7 @@ def main():
             if st.session_state.user_id == session['host_id']:
                 uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png", "heic"], accept_multiple_files=True)
                 if uploaded_files:
-                    if st.button("Upload Images"):
+                    if st.button("Upload Images", key="upload_images"):
                         for uploaded_file in uploaded_files:
                             image_data = uploaded_file.read()
                             add_image(st.session_state.current_session, uploaded_file.name, image_data)
@@ -187,7 +198,7 @@ def main():
                 with cols[idx % 3]:
                     image_data = conn.query('SELECT data FROM images WHERE id = ?', params=(image['id'],)).iloc[0]['data']
                     img = Image.open(io.BytesIO(image_data))
-                    st.image(img, caption=image['name'], use_container_width=True)
+                    st.image(img, caption=image['name'], use_column_width=True)
                     vote_count = get_vote_count(image['id'])
                     st.write(f"Votes: {vote_count}")
                     
@@ -198,9 +209,9 @@ def main():
                             st.success("Vote recorded!")
                             st.rerun()
                     else:
-                        st.write("You have already voted in this session.")
+                        st.info("You have already voted in this session.")
 
-            if st.button("Leave Session"):
+            if st.button("Leave Session", key="leave_session"):
                 st.session_state.current_session = None
                 st.rerun()
 
