@@ -1,0 +1,65 @@
+/* style.css */
+body {
+    color: #333;
+    font-family: 'Helvetica', 'Arial', sans-serif;
+}
+
+.stButton > button {
+    color: #ffffff;
+    background-color: #4CAF50;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    font-size: 16px;
+    transition: all 0.3s ease;
+}
+
+.stButton > button:hover {
+    background-color: #45a049;
+}
+
+.stTextInput > div > div > input {
+    border-radius: 4px;
+}
+
+.stHeader {
+    background-color: #f1f1f1;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.stExpander {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
+
+.stImage {
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.stSuccess {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.stError {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.stInfo {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
