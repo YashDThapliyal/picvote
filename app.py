@@ -4,8 +4,7 @@ import io
 import uuid
 from PIL import Image
 from pillow_heif import register_heif_opener
-import hashlib
-import base64
+from database import init_db, get_db_connection
 
 # Register HEIF opener to support HEIC files
 register_heif_opener()
@@ -20,89 +19,53 @@ def local_css(file_name):
 
 local_css("style.css")
 
-# Initialize connection to SQLite
-conn = st.connection('sqlite', type='sql')
+# Initialize database
+init_db()
 
-# Database setup (create tables if they don't exist)
-conn.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
-    )
-''')
-
-conn.execute('''
-    CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        host_id INTEGER,
-        FOREIGN KEY (host_id) REFERENCES users(id)
-    )
-''')
-
-conn.execute('''
-    CREATE TABLE IF NOT EXISTS images (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT,
-        name TEXT NOT NULL,
-        data BLOB NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id)
-    )
-''')
-
-conn.execute('''
-    CREATE TABLE IF NOT EXISTS votes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        image_id INTEGER,
-        FOREIGN KEY (user_id) REFERENCES users(id),
-        FOREIGN KEY (image_id) REFERENCES images(id)
-    )
-''')
+# Database connection
+conn = get_db_connection()
 
 # Helper functions
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def add_user(username):
+    conn.execute('INSERT INTO users (username) VALUES (?)', (username,))
+    conn.commit()
 
-def add_user(username, password):
-    hashed_password = hash_password(password)
-    conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hashed_password))
-
-def authenticate_user(username, password):
-    hashed_password = hash_password(password)
-    result = conn.query('SELECT id FROM users WHERE username = ? AND password = ?', params=(username, hashed_password))
-    return result.iloc[0]['id'] if not result.empty else None
+def get_user_id(username):
+    result = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+    return result[0] if result else None
 
 def create_session(name, host_id):
     session_id = str(uuid.uuid4())
     conn.execute('INSERT INTO sessions (id, name, host_id) VALUES (?, ?, ?)', (session_id, name, host_id))
+    conn.commit()
     return session_id
 
 def get_active_sessions():
-    return conn.query('SELECT s.id, s.name, u.username as host FROM sessions s JOIN users u ON s.host_id = u.id')
+    return conn.execute('SELECT s.id, s.name, u.username as host FROM sessions s JOIN users u ON s.host_id = u.id').fetchall()
 
 def add_image(session_id, name, data):
     conn.execute('INSERT INTO images (session_id, name, data) VALUES (?, ?, ?)', (session_id, name, data))
+    conn.commit()
 
 def get_session_images(session_id):
-    return conn.query('SELECT id, name FROM images WHERE session_id = ?', params=(session_id,))
+    return conn.execute('SELECT id, name FROM images WHERE session_id = ?', (session_id,)).fetchall()
 
 def record_vote(user_id, image_id):
     conn.execute('INSERT INTO votes (user_id, image_id) VALUES (?, ?)', (user_id, image_id))
+    conn.commit()
 
 def get_vote_count(image_id):
-    result = conn.query('SELECT COUNT(*) as count FROM votes WHERE image_id = ?', params=(image_id,))
-    return result.iloc[0]['count']
+    result = conn.execute('SELECT COUNT(*) as count FROM votes WHERE image_id = ?', (image_id,)).fetchone()
+    return result[0] if result else 0
 
 def user_has_voted(user_id, session_id):
-    result = conn.query('''
+    result = conn.execute('''
         SELECT COUNT(*) as count 
         FROM votes v 
         JOIN images i ON v.image_id = i.id 
         WHERE v.user_id = ? AND i.session_id = ?
-    ''', params=(user_id, session_id))
-    return result.iloc[0]['count'] > 0
+    ''', (user_id, session_id)).fetchone()
+    return result[0] > 0 if result else False
 
 # Main app
 def main():
@@ -115,32 +78,19 @@ def main():
     if st.session_state.user_id is None:
         with st.container():
             st.subheader("Sign In or Sign Up")
-            col1, col2 = st.columns(2)
-            with col1:
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-            with col2:
-                if st.button("Sign In", key="signin"):
-                    user_id = authenticate_user(username, password)
-                    if user_id:
-                        st.session_state.user_id = user_id
-                        st.success("Signed in successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid username or password")
-                if st.button("Sign Up", key="signup"):
-                    if username and password:
-                        try:
-                            add_user(username, password)
-                            st.success("User created successfully! Please sign in.")
-                        except sqlite3.IntegrityError:
-                            st.error("Username already exists")
-                    else:
-                        st.error("Please enter both username and password")
+            username = st.text_input("Username")
+            if st.button("Sign In / Sign Up"):
+                user_id = get_user_id(username)
+                if user_id is None:
+                    add_user(username)
+                    user_id = get_user_id(username)
+                st.session_state.user_id = user_id
+                st.success(f"Welcome, {username}!")
+                st.rerun()
 
     else:
-        user = conn.query('SELECT username FROM users WHERE id = ?', params=(st.session_state.user_id,)).iloc[0]
-        st.sidebar.write(f"Signed in as: {user['username']}")
+        username = conn.execute('SELECT username FROM users WHERE id = ?', (st.session_state.user_id,)).fetchone()[0]
+        st.sidebar.write(f"Signed in as: {username}")
         if st.sidebar.button("Sign Out"):
             st.session_state.user_id = None
             st.rerun()
@@ -154,11 +104,11 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 session_name = st.text_input("Enter a name for your session")
-                if st.button("Create New Session", key="create_session"):
+                if st.button("Create New Session"):
                     if session_name:
                         session_id = create_session(session_name, st.session_state.user_id)
                         st.session_state.current_session = session_id
-                        st.success(f"New session created! Session ID: {session_id}")
+                        st.success(f"New session created: {session_name}")
                         st.rerun()
                     else:
                         st.error("Please enter a session name")
@@ -166,24 +116,24 @@ def main():
             with col2:
                 st.subheader("Active Sessions")
                 active_sessions = get_active_sessions()
-                for _, session in active_sessions.iterrows():
-                    with st.expander(f"{session['name']} (Host: {session['host']})"):
-                        if st.button(f"Join Session", key=f"join_{session['id']}"):
-                            st.session_state.current_session = session['id']
-                            st.success(f"Joined session: {session['name']}")
+                for session in active_sessions:
+                    with st.expander(f"{session[1]} (Host: {session[2]})"):
+                        if st.button(f"Join Session", key=f"join_{session[0]}"):
+                            st.session_state.current_session = session[0]
+                            st.success(f"Joined session: {session[1]}")
                             st.rerun()
 
         else:
-            session = conn.query('SELECT * FROM sessions WHERE id = ?', params=(st.session_state.current_session,)).iloc[0]
-            st.subheader(f"Current Session: {session['name']}")
-            host = conn.query('SELECT username FROM users WHERE id = ?', params=(session['host_id'],)).iloc[0]
-            st.write(f"Host: {host['username']}")
+            session = conn.execute('SELECT * FROM sessions WHERE id = ?', (st.session_state.current_session,)).fetchone()
+            st.subheader(f"Current Session: {session[1]}")
+            host = conn.execute('SELECT username FROM users WHERE id = ?', (session[2],)).fetchone()
+            st.write(f"Host: {host[0]}")
 
             # File uploader (only for host)
-            if st.session_state.user_id == session['host_id']:
+            if st.session_state.user_id == session[2]:
                 uploaded_files = st.file_uploader("Choose images", type=["jpg", "jpeg", "png", "heic"], accept_multiple_files=True)
                 if uploaded_files:
-                    if st.button("Upload Images", key="upload_images"):
+                    if st.button("Upload Images"):
                         for uploaded_file in uploaded_files:
                             image_data = uploaded_file.read()
                             add_image(st.session_state.current_session, uploaded_file.name, image_data)
@@ -194,24 +144,24 @@ def main():
             st.subheader("Vote for Pictures")
             session_images = get_session_images(st.session_state.current_session)
             cols = st.columns(3)
-            for idx, image in session_images.iterrows():
+            for idx, image in enumerate(session_images):
                 with cols[idx % 3]:
-                    image_data = conn.query('SELECT data FROM images WHERE id = ?', params=(image['id'],)).iloc[0]['data']
+                    image_data = conn.execute('SELECT data FROM images WHERE id = ?', (image[0],)).fetchone()[0]
                     img = Image.open(io.BytesIO(image_data))
-                    st.image(img, caption=image['name'], use_column_width=True)
-                    vote_count = get_vote_count(image['id'])
+                    st.image(img, caption=image[1], use_column_width=True)
+                    vote_count = get_vote_count(image[0])
                     st.write(f"Votes: {vote_count}")
                     
                     # Check if user has already voted
                     if not user_has_voted(st.session_state.user_id, st.session_state.current_session):
-                        if st.button(f"Vote", key=f"vote_{image['id']}"):
-                            record_vote(st.session_state.user_id, image['id'])
+                        if st.button(f"Vote", key=f"vote_{image[0]}"):
+                            record_vote(st.session_state.user_id, image[0])
                             st.success("Vote recorded!")
                             st.rerun()
                     else:
                         st.info("You have already voted in this session.")
 
-            if st.button("Leave Session", key="leave_session"):
+            if st.button("Leave Session"):
                 st.session_state.current_session = None
                 st.rerun()
 
