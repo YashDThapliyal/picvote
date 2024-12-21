@@ -53,29 +53,38 @@ def main():
             st.subheader("Join or Create a Session")
             col1, col2 = st.columns(2)
             with col1:
+                session_name = st.text_input("Enter a name for your session")
                 if st.button("Create New Session"):
-                    session_id = generate_session_id()
-                    st.session_state.sessions[session_id] = {
-                        'host': st.session_state.user,
-                        'images': {},
-                        'votes': {},
-                        'user_votes': {}
-                    }
-                    st.session_state.current_session = session_id
-                    st.success(f"New session created! Session ID: {session_id}")
-                    st.rerun()
-            with col2:
-                join_session_id = st.text_input("Enter Session ID to join")
-                if st.button("Join Session"):
-                    if join_session_id in st.session_state.sessions:
-                        st.session_state.current_session = join_session_id
-                        st.success(f"Joined session: {join_session_id}")
+                    if session_name:
+                        session_id = generate_session_id()
+                        st.session_state.sessions[session_id] = {
+                            'name': session_name,
+                            'host': st.session_state.user,
+                            'images': {},
+                            'votes': {},
+                            'user_votes': {}
+                        }
+                        st.session_state.current_session = session_id
+                        st.success(f"New session created! Session ID: {session_id}")
                         st.rerun()
                     else:
-                        st.error("Invalid Session ID")
+                        st.error("Please enter a session name")
+
+            with col2:
+                st.subheader("Active Sessions")
+                for session_id, session_info in st.session_state.sessions.items():
+                    st.write(f"Name: {session_info['name']}")
+                    st.write(f"Host: {session_info['host']}")
+                    st.write(f"Join Code: {session_id}")
+                    if st.button(f"Join {session_info['name']}", key=f"join_{session_id}"):
+                        st.session_state.current_session = session_id
+                        st.success(f"Joined session: {session_info['name']}")
+                        st.rerun()
+                    st.write("---")
+
         else:
             session = st.session_state.sessions[st.session_state.current_session]
-            st.subheader(f"Current Session: {st.session_state.current_session}")
+            st.subheader(f"Current Session: {session['name']} (ID: {st.session_state.current_session})")
             st.write(f"Host: {session['host']}")
 
             # File uploader (only for host)
