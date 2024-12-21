@@ -1,4 +1,5 @@
 import streamlit as st
+import sqlite3
 
 def init_db():
     conn = st.connection('sqlite', type='sql')
